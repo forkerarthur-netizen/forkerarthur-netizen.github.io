@@ -478,6 +478,8 @@
       var adScript = document.createElement('script');
       adScript.innerHTML = '(AdProvider = window.AdProvider || []).push({"serve": {}});';
       adContainer.appendChild(adScript);
+      // Ergebnisse anzeigen
+      calculateNPS();
     });
   </script>
 </body>
