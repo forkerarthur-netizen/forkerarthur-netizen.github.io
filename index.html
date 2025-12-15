@@ -162,13 +162,11 @@
       </form>
     </div>
 
+    <!-- Ad Container (sichtbar direkt vor Ergebnissen) -->
+    <div id="ad-container" class="mt-3"></div>
+
     <div id="results" class="mt-4" style="display:none;"></div>
   </div>
-
-  <!-- Ad Container -->
-  <div id="ad-container"></div>
-
-
 
   <!-- AdProvider wird erst nach Klick auf "Berechnen" geladen -->
 
@@ -436,7 +434,7 @@
       if (!adContainer) return;
 
       // Container immer frisch setzen
-      adContainer.innerHTML = '';
+      adContainer.innerHTML = '<div class="text-muted small">Werbung wird geladen…</div>';
 
       var adIns = document.createElement('ins');
       adIns.className = 'eas6a97888e33 ad-slot';
@@ -448,6 +446,12 @@
       // 1) Slot in DOM setzen
       renderAdSlot();
 
+      var adContainer = document.getElementById('ad-container');
+      if (adContainer) {
+        // In View scrollen, damit man die Werbung auch wirklich sieht
+        try { adContainer.scrollIntoView({ behavior: 'smooth', block: 'start' }); } catch (e) {}
+      }
+
       // 2) Script laden (nur wenn nötig), dann serve triggern
       var finished = false;
       var finish = function() {
@@ -456,19 +460,62 @@
         calculateNPS();
       };
 
+      // 2a) Beobachten, ob der AdProvider wirklich etwas in den Slot injectet
+      // (z.B. ein iframe / div innerhalb des <ins>). Dann erst Ergebnisse zeigen.
+      var observer;
+      var observed = false;
+      var startObservation = function() {
+        if (observed) return;
+        observed = true;
+
+        var adIns = adContainer ? adContainer.querySelector('ins') : null;
+        if (!adIns) return;
+
+        try {
+          observer = new MutationObserver(function(mutations) {
+            for (var i = 0; i < mutations.length; i++) {
+              if (mutations[i].addedNodes && mutations[i].addedNodes.length) {
+                // Kleinen Puffer, damit der Slot sichtbar gefüllt ist
+                if (observer) observer.disconnect();
+                setTimeout(finish, 400);
+                return;
+              }
+            }
+          });
+          observer.observe(adIns, { childList: true, subtree: true });
+        } catch (e) {
+          // MutationObserver nicht verfügbar? Dann über Timeout weiter.
+        }
+      };
+
       ensureAdProviderScriptLoaded(function() {
         try {
           (window.AdProvider = window.AdProvider || []).push({"serve": {}});
         } catch (e) {
           // ignore
         }
-        // 3) Ergebnisse erst danach anzeigen
-        // ("danach" = nachdem serve getriggert wurde)
-        setTimeout(finish, 150);
+
+        // Beobachtung starten, um echtes Rendering zu erkennen
+        startObservation();
+
+        // 3) Minimum-Delay, damit nicht "sofort" Ergebnisse kommen,
+        // selbst wenn der Provider extrem schnell ist.
+        setTimeout(function() {
+          // Wenn bis dahin nichts injected wurde, nicht hängen bleiben.
+          finish();
+        }, 2500);
       });
 
-      // Hartes Fallback, falls nichts lädt (AdBlock etc.)
-      setTimeout(finish, 2500);
+      // Hartes Fallback, falls Script nie lädt / AdBlock etc.
+      setTimeout(function() {
+        if (!finished) {
+          var c = document.getElementById('ad-container');
+          if (c && !c.querySelector('iframe, img, div')) {
+            c.innerHTML = '<div class="text-muted small">Werbung konnte nicht geladen werden (AdBlock/CSP?).</div>';
+          }
+        }
+        finish();
+      }, 6000);
     }
 
     // Wichtig: Wenn required-Felder leer sind, feuert "submit" NICHT.
