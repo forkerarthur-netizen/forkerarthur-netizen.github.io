@@ -232,28 +232,6 @@
   <div id="ad-container"></div>
   </div>
 
-  <!-- ===== Ad Overlay (in-page, no new tab) ===== -->
-  <div id="adOverlay" aria-hidden="true">
-    <div class="ad-content">
-      <button class="ad-close" id="closeAd" type="button" aria-label="Werbung schließen">&times;</button>
-      <h5 class="mb-2">Werbung</h5>
-
-      <!-- AdProvider Slot -->
-      <ins id="adIns" class="eas6a97888e33 ad-slot" data-zoneid="5800172"></ins>
-
-      <div class="ad-countdown">
-        Bitte warten… <span id="adTimer">5</span>s
-      </div>
-
-      <div class="ad-progress">
-        <div class="ad-progress-bar" id="adProgress"></div>
-      </div>
-
-      <div class="text-muted small mt-2">
-        Nach der Werbung werden die Ergebnisse angezeigt.
-      </div>
-    </div>
-  </div>
 
   <!-- Load AdProvider script ONCE -->
   <script async type="application/javascript" src="https://a.pemsrv.com/ad-provider.js"></script>
@@ -480,59 +458,14 @@
       results.style.display = 'block';
     }
 
-    // ===== Ad overlay flow (Ad first, then results) =====
-    const overlay = document.getElementById('adOverlay');
-    const closeBtn = document.getElementById('closeAd');
-    const timerEl = document.getElementById('adTimer');
-    const progressEl = document.getElementById('adProgress');
-
-    const AD_SECONDS = 5;
-
-    function serveAdProvider() {
-      // Trigger an in-page serve when overlay opens
-      try {
-        (window.AdProvider = window.AdProvider || []).push({ serve: {} });
-      } catch (e) {
-        // If provider not ready yet, ignore; countdown will still proceed.
-      }
-    }
-
-    function showAdThenCalculate() {
-      overlay.style.display = 'flex';
-      overlay.setAttribute('aria-hidden', 'false');
-
-      // Start / refresh ad request
-      serveAdProvider();
-
-      let seconds = AD_SECONDS;
-      timerEl.textContent = seconds;
-      progressEl.style.width = '100%';
-
-      const tick = () => {
-        seconds--;
-        timerEl.textContent = Math.max(0, seconds);
-        progressEl.style.width = (Math.max(0, seconds) / AD_SECONDS * 100) + '%';
-
-        if (seconds <= 0) {
-          clearInterval(interval);
-          closeAdAndCalculate();
-        }
-      };
-
-      const interval = setInterval(tick, 1000);
-
-      closeBtn.onclick = () => {
-        clearInterval(interval);
-        closeAdAndCalculate();
-      };
-    }
-
-    function closeAdAndCalculate() {
-      overlay.style.display = 'none';
-      overlay.setAttribute('aria-hidden', 'true');
-      calculateNPS();
-      // Ad-Code direkt nach Berechnen ausführen
-      // Ad-Script nur einmal einfügen
+    // Ad direkt nach Klick auf "Berechnen" anzeigen
+    form.addEventListener('submit', function(e) {
+      e.preventDefault();
+      if (!checkGesValid()) return;
+      results.style.display = 'none';
+      // Ad-Code direkt nach Berechnen ausführen (neue zoneid)
+      var adContainer = document.getElementById('ad-container');
+      // Script nur einmal einfügen
       if (!document.getElementById('ad-provider-script')) {
         var s = document.createElement('script');
         s.async = true;
@@ -541,20 +474,10 @@
         s.id = 'ad-provider-script';
         document.body.appendChild(s);
       }
-      var adContainer = document.getElementById('ad-container');
-      adContainer.innerHTML = '<ins class="eas6a97888e33" data-zoneid="5800172"></ins>';
+      adContainer.innerHTML = '<ins class="eas6a97888e33" data-zoneid="5800584"></ins>';
       var adScript = document.createElement('script');
       adScript.innerHTML = '(AdProvider = window.AdProvider || []).push({"serve": {}});';
       adContainer.appendChild(adScript);
-
-    }
-
-    // Intercept submit: show ad first, then calculate
-    form.addEventListener('submit', function(e) {
-      e.preventDefault();
-      if (!checkGesValid()) return;
-      results.style.display = 'none';
-      showAdThenCalculate();
     });
   </script>
 </body>
