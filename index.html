@@ -90,6 +90,11 @@
 
 
   </style>
+  <style>
+    /* Ensure the AdProvider slot is actually visible even before it fills */
+    #ad-container { min-height: 220px; }
+    ins.eas6a97888e33 { display: block; width: 100%; min-height: 220px; }
+  </style>
 </head>
 
 <body>
@@ -161,8 +166,7 @@
     <div id="results" class="mt-4" style="display:none;"></div>
   </div>
 
-  <!-- AdProvider (pemsrv) – entspricht deinem Snippet -->
-  <script async type="application/javascript" src="https://a.pemsrv.com/ad-provider.js"></script>
+  <!-- AdProvider (pemsrv) – wird per JS geladen (damit wir Blocker erkennen können) -->
 
   <script>
     // ===== Validation helpers (from your original) =====
@@ -386,11 +390,53 @@
       results.style.display = 'block';
     }
 
+    function ensureAdProviderScriptLoaded(done) {
+      // Viele Ad-Netzwerke liefern nicht auf file:// aus (keine Origin/Referrer/Domain).
+      if (window.location && window.location.protocol === 'file:') {
+        done(false);
+        return;
+      }
+
+      var existing = document.getElementById('ad-provider-script');
+      if (existing && existing.dataset.loaded === '1') {
+        done(true);
+        return;
+      }
+
+      if (!existing) {
+        var s = document.createElement('script');
+        s.async = true;
+        s.type = 'application/javascript';
+        s.src = 'https://a.pemsrv.com/ad-provider.js';
+        s.id = 'ad-provider-script';
+        s.onload = function() {
+          s.dataset.loaded = '1';
+          done(true);
+        };
+        s.onerror = function() {
+          done(false);
+        };
+        document.head.appendChild(s);
+        return;
+      }
+
+      // Script existiert, aber loaded-Flag fehlt (Race). Kurz warten.
+      setTimeout(function() {
+        done(!!window.AdProvider);
+      }, 800);
+    }
+
     function renderAdSlot() {
       var adContainer = document.getElementById('ad-container');
       if (!adContainer) return null;
 
-      adContainer.innerHTML = '<div class="text-muted small">Werbung wird geladen…</div>';
+      adContainer.innerHTML = '';
+
+      var status = document.createElement('div');
+      status.id = 'ad-status';
+      status.className = 'text-muted small';
+      status.textContent = 'Werbung wird geladen...';
+      adContainer.appendChild(status);
 
       var adIns = document.createElement('ins');
       adIns.className = 'eas6a97888e33';
@@ -422,6 +468,8 @@
             for (var i = 0; i < mutations.length; i++) {
               if (mutations[i].addedNodes && mutations[i].addedNodes.length) {
                 if (observer) observer.disconnect();
+                var st = document.getElementById('ad-status');
+                if (st) st.remove();
                 setTimeout(finish, 400);
                 return;
               }
@@ -433,19 +481,28 @@
         }
       }
 
-      // exakt dein Trigger-Snippet
-      try {
-        (window.AdProvider = window.AdProvider || []).push({"serve": {}});
-      } catch (e) {
-        // ignore
-      }
+      // Script laden (und Blocker erkennen), dann serve triggern
+      ensureAdProviderScriptLoaded(function(loadedOk) {
+        if (!loadedOk) {
+          var st2 = document.getElementById('ad-status');
+          if (st2) st2.textContent = 'Werbung konnte nicht geladen werden (Script blockiert?).';
+          return;
+        }
+
+        try {
+          (window.AdProvider = window.AdProvider || []).push({"serve": {}});
+        } catch (e) {
+          // ignore
+        }
+      });
 
       // Fallback: nicht hängen bleiben
       setTimeout(function() {
-        if (!finished && adContainer) {
-          var hasFill = !!adContainer.querySelector('iframe, img, div');
+        if (!finished) {
+          var hasFill = !!(adIns && (adIns.childNodes && adIns.childNodes.length > 0));
           if (!hasFill) {
-            adContainer.innerHTML = '<div class="text-muted small">Werbung konnte nicht geladen werden (AdBlock/CSP?).</div>';
+            var st3 = document.getElementById('ad-status');
+            if (st3) st3.textContent = 'Werbung konnte nicht geladen werden (AdBlock/CSP/kein Fill).';
           }
         }
         finish();
