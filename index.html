@@ -170,8 +170,7 @@
 
 
 
-  <!-- Load AdProvider script ONCE -->
-  <script async type="application/javascript" src="https://a.pemsrv.com/ad-provider.js"></script>
+  <!-- AdProvider wird erst nach Klick auf "Berechnen" geladen -->
 
   <script>
     // ===== Validation helpers (from your original) =====
@@ -395,28 +394,103 @@
       results.style.display = 'block';
     }
 
-    // Ad direkt nach Klick auf "Berechnen" anzeigen
-    form.addEventListener('submit', function(e) {
-      e.preventDefault();
-      if (!checkGesValid()) return;
-      results.style.display = 'none';
-      // Ad-Code direkt nach Berechnen ausführen (neue zoneid)
-      var adContainer = document.getElementById('ad-container');
-      // Script nur einmal einfügen
-      if (!document.getElementById('ad-provider-script')) {
+    function ensureAdProviderScriptLoaded(done) {
+      var existing = document.getElementById('ad-provider-script');
+      if (existing && existing.dataset.loaded === '1') {
+        done();
+        return;
+      }
+
+      if (!existing) {
         var s = document.createElement('script');
         s.async = true;
         s.type = 'application/javascript';
         s.src = 'https://a.pemsrv.com/ad-provider.js';
         s.id = 'ad-provider-script';
-        document.body.appendChild(s);
+        s.onload = function() {
+          s.dataset.loaded = '1';
+          done();
+        };
+        s.onerror = function() {
+          // Wenn Ads blockiert werden (AdBlock/CSP), nicht hängen bleiben.
+          done();
+        };
+        document.head.appendChild(s);
+        return;
       }
-      adContainer.innerHTML = '<ins class="eas6a97888e33" data-zoneid="5800584"></ins>';
-      var adScript = document.createElement('script');
-      adScript.innerHTML = '(AdProvider = window.AdProvider || []).push({"serve": {}});';
-      adContainer.appendChild(adScript);
-      // Ergebnisse anzeigen
-      calculateNPS();
+
+      // Script existiert, aber onload kann schon vorbei sein.
+      // Falls AdProvider schon da ist: sofort weiter.
+      if (window.AdProvider) {
+        existing.dataset.loaded = '1';
+        done();
+        return;
+      }
+
+      // Fallback: nach kurzer Zeit weiter (z.B. wenn Browser onload nicht feuert).
+      setTimeout(done, 800);
+    }
+
+    function renderAdSlot() {
+      var adContainer = document.getElementById('ad-container');
+      if (!adContainer) return;
+
+      // Container immer frisch setzen
+      adContainer.innerHTML = '';
+
+      var adIns = document.createElement('ins');
+      adIns.className = 'eas6a97888e33 ad-slot';
+      adIns.setAttribute('data-zoneid', '5800584');
+      adContainer.appendChild(adIns);
+    }
+
+    function startAdThenShowResults() {
+      // 1) Slot in DOM setzen
+      renderAdSlot();
+
+      // 2) Script laden (nur wenn nötig), dann serve triggern
+      var finished = false;
+      var finish = function() {
+        if (finished) return;
+        finished = true;
+        calculateNPS();
+      };
+
+      ensureAdProviderScriptLoaded(function() {
+        try {
+          (window.AdProvider = window.AdProvider || []).push({"serve": {}});
+        } catch (e) {
+          // ignore
+        }
+        // 3) Ergebnisse erst danach anzeigen
+        // ("danach" = nachdem serve getriggert wurde)
+        setTimeout(finish, 150);
+      });
+
+      // Hartes Fallback, falls nichts lädt (AdBlock etc.)
+      setTimeout(finish, 2500);
+    }
+
+    // Wichtig: Wenn required-Felder leer sind, feuert "submit" NICHT.
+    // Daher: beim Button-Klick reportValidity() auslösen, damit der Nutzer Feedback bekommt.
+    const submitBtn = form.querySelector('button[type="submit"]');
+    if (submitBtn) {
+      submitBtn.addEventListener('click', function() {
+        // Zeigt Browser-Validierung ("Bitte füllen Sie dieses Feld aus")
+        form.reportValidity();
+      });
+    }
+
+    // Ad zuerst, Ergebnisse danach (nur bei gültigem Submit)
+    form.addEventListener('submit', function(e) {
+      e.preventDefault();
+
+      // Wichtig: required-Felder müssen gefüllt sein
+      if (!form.reportValidity()) return;
+      if (!checkGesValid()) return;
+
+      results.style.display = 'none';
+      startAdThenShowResults();
     });
   </script>
 </body>
