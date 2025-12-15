@@ -90,12 +90,6 @@
 
 
     /* Ad slot sizing helper (optional) */
-    .ad-slot {
-      display: block;
-      width: 100%;
-      min-height: 220px;
-      margin: 0.7rem 0 0.2rem 0;
-    }
   </style>
 </head>
 
@@ -162,13 +156,19 @@
       </form>
     </div>
 
-    <!-- Ad Container (sichtbar direkt vor Ergebnissen) -->
-    <div id="ad-container" class="mt-3"></div>
-
     <div id="results" class="mt-4" style="display:none;"></div>
   </div>
 
-  <!-- AdProvider wird erst nach Klick auf "Berechnen" geladen -->
+  <!-- ExoClick Mobile Fullpage Interstitial (erscheint beim Klick auf .ad-trigger)
+       WICHTIG: Trage hier DEINE Zone-ID ein (ad_idzone).
+       Du kannst optional Frequency-Settings ergänzen (aus deinem ExoClick-Tag).
+  -->
+  <script>
+    // ExoClick Tag-Config (Zone-ID einsetzen)
+    var ad_idzone = 5800584;
+    var ad_trigger_class = "ad-trigger";
+  </script>
+  <script async type="application/javascript" src="https://a.exoclick.com/ads.js"></script>
 
   <script>
     // ===== Validation helpers (from your original) =====
@@ -392,152 +392,68 @@
       results.style.display = 'block';
     }
 
-    function ensureAdProviderScriptLoaded(done) {
-      var existing = document.getElementById('ad-provider-script');
-      if (existing && existing.dataset.loaded === '1') {
-        done();
-        return;
-      }
+    // Ergebnisse erst anzeigen, nachdem der Nutzer vom Interstitial zurück ist
+    // (Focus/Visibility kommt zurück) oder nach Timeout-Fallback.
+    function showResultsAfterInterstitialReturn() {
+      var startedAt = Date.now();
+      var minDelayMs = 900;
+      var maxWaitMs = 8000;
+      var done = false;
 
-      if (!existing) {
-        var s = document.createElement('script');
-        s.async = true;
-        s.type = 'application/javascript';
-        s.src = 'https://a.pemsrv.com/ad-provider.js';
-        s.id = 'ad-provider-script';
-        s.onload = function() {
-          s.dataset.loaded = '1';
-          done();
-        };
-        s.onerror = function() {
-          // Wenn Ads blockiert werden (AdBlock/CSP), nicht hängen bleiben.
-          done();
-        };
-        document.head.appendChild(s);
-        return;
-      }
+      var cleanup = function() {
+        window.removeEventListener('focus', onReturn);
+        document.removeEventListener('visibilitychange', onVis);
+      };
 
-      // Script existiert, aber onload kann schon vorbei sein.
-      // Falls AdProvider schon da ist: sofort weiter.
-      if (window.AdProvider) {
-        existing.dataset.loaded = '1';
-        done();
-        return;
-      }
-
-      // Fallback: nach kurzer Zeit weiter (z.B. wenn Browser onload nicht feuert).
-      setTimeout(done, 800);
-    }
-
-    function renderAdSlot() {
-      var adContainer = document.getElementById('ad-container');
-      if (!adContainer) return;
-
-      // Container immer frisch setzen
-      adContainer.innerHTML = '<div class="text-muted small">Werbung wird geladen…</div>';
-
-      var adIns = document.createElement('ins');
-      adIns.className = 'eas6a97888e33 ad-slot';
-      adIns.setAttribute('data-zoneid', '5800584');
-      adContainer.appendChild(adIns);
-    }
-
-    function startAdThenShowResults() {
-      // 1) Slot in DOM setzen
-      renderAdSlot();
-
-      var adContainer = document.getElementById('ad-container');
-      if (adContainer) {
-        // In View scrollen, damit man die Werbung auch wirklich sieht
-        try { adContainer.scrollIntoView({ behavior: 'smooth', block: 'start' }); } catch (e) {}
-      }
-
-      // 2) Script laden (nur wenn nötig), dann serve triggern
-      var finished = false;
       var finish = function() {
-        if (finished) return;
-        finished = true;
+        if (done) return;
+        done = true;
+        cleanup();
         calculateNPS();
+        try { results.scrollIntoView({ behavior: 'smooth', block: 'start' }); } catch (e) {}
       };
 
-      // 2a) Beobachten, ob der AdProvider wirklich etwas in den Slot injectet
-      // (z.B. ein iframe / div innerhalb des <ins>). Dann erst Ergebnisse zeigen.
-      var observer;
-      var observed = false;
-      var startObservation = function() {
-        if (observed) return;
-        observed = true;
-
-        var adIns = adContainer ? adContainer.querySelector('ins') : null;
-        if (!adIns) return;
-
-        try {
-          observer = new MutationObserver(function(mutations) {
-            for (var i = 0; i < mutations.length; i++) {
-              if (mutations[i].addedNodes && mutations[i].addedNodes.length) {
-                // Kleinen Puffer, damit der Slot sichtbar gefüllt ist
-                if (observer) observer.disconnect();
-                setTimeout(finish, 400);
-                return;
-              }
-            }
-          });
-          observer.observe(adIns, { childList: true, subtree: true });
-        } catch (e) {
-          // MutationObserver nicht verfügbar? Dann über Timeout weiter.
-        }
+      var onReturn = function() {
+        if (Date.now() - startedAt < minDelayMs) return;
+        // Kurzer Puffer, damit Overlay/Tab-Wechsel abgeschlossen ist
+        setTimeout(finish, 250);
       };
 
-      ensureAdProviderScriptLoaded(function() {
-        try {
-          (window.AdProvider = window.AdProvider || []).push({"serve": {}});
-        } catch (e) {
-          // ignore
-        }
+      var onVis = function() {
+        if (!document.hidden) onReturn();
+      };
 
-        // Beobachtung starten, um echtes Rendering zu erkennen
-        startObservation();
+      window.addEventListener('focus', onReturn);
+      document.addEventListener('visibilitychange', onVis);
 
-        // 3) Minimum-Delay, damit nicht "sofort" Ergebnisse kommen,
-        // selbst wenn der Provider extrem schnell ist.
-        setTimeout(function() {
-          // Wenn bis dahin nichts injected wurde, nicht hängen bleiben.
-          finish();
-        }, 2500);
-      });
-
-      // Hartes Fallback, falls Script nie lädt / AdBlock etc.
-      setTimeout(function() {
-        if (!finished) {
-          var c = document.getElementById('ad-container');
-          if (c && !c.querySelector('iframe, img, div')) {
-            c.innerHTML = '<div class="text-muted small">Werbung konnte nicht geladen werden (AdBlock/CSP?).</div>';
-          }
-        }
-        finish();
-      }, 6000);
+      setTimeout(finish, maxWaitMs);
     }
 
-    // Wichtig: Wenn required-Felder leer sind, feuert "submit" NICHT.
-    // Daher: beim Button-Klick reportValidity() auslösen, damit der Nutzer Feedback bekommt.
+    // Klick auf Berechnen:
+    // - ExoClick interstitial wird durch deren Script über .ad-trigger ausgelöst
+    // - Wir verhindern den Form-Submit (kein Reload)
+    // - Ergebnisse erst nach "Return" oder Timeout anzeigen
     const submitBtn = form.querySelector('button[type="submit"]');
     if (submitBtn) {
       submitBtn.addEventListener('click', function() {
-        // Zeigt Browser-Validierung ("Bitte füllen Sie dieses Feld aus")
-        form.reportValidity();
+        // Browser-Validierung (required)
+        if (!form.reportValidity()) return;
+        if (!checkGesValid()) return;
+
+        results.style.display = 'none';
+        showResultsAfterInterstitialReturn();
+        // Wichtig: kein stopPropagation()/preventDefault() hier,
+        // damit ExoClick den Click sicher abfangen kann.
       });
     }
 
-    // Ad zuerst, Ergebnisse danach (nur bei gültigem Submit)
+    // Fallback: Enter-Key Submit (falls jemand Enter drückt)
     form.addEventListener('submit', function(e) {
       e.preventDefault();
-
-      // Wichtig: required-Felder müssen gefüllt sein
       if (!form.reportValidity()) return;
       if (!checkGesValid()) return;
-
       results.style.display = 'none';
-      startAdThenShowResults();
+      showResultsAfterInterstitialReturn();
     });
   </script>
 </body>
