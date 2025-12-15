@@ -1,7 +1,6 @@
 <!DOCTYPE html>
 <html lang="de">
 <head>
-  <script>(function(s){s.dataset.zone='10330251',s.src='https://groleegni.net/vignette.min.js'})([document.documentElement, document.body].filter(Boolean).pop().appendChild(document.createElement('script')))</script>
   <meta charset="UTF-8" />
   <meta name="monetag" content="5ae359e9648eb25b9ab32fd6cd160af3">
   <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no" />
@@ -168,7 +167,7 @@
     <div id="results" class="mt-4" style="display:none;"></div>
   </div>
 
-  <!-- AdProvider (pemsrv) – wird per JS geladen (damit wir Blocker erkennen können) -->
+  <!-- Monetag Vignette – wird per Klick geladen -->
 
   <script>
     // ===== Validation helpers (from your original) =====
@@ -392,17 +391,17 @@
       results.style.display = 'block';
     }
 
-    function ensureAdProviderScriptLoaded(done) {
+    function ensureMonetagVignetteLoaded(done) {
       // Viele Ad-Netzwerke liefern nicht auf file:// aus (keine Origin/Referrer/Domain).
       if (window.location && window.location.protocol === 'file:') {
-        window.__adProviderLoadReason = 'file-protocol';
+        window.__adLoadReason = 'file-protocol';
         done(false);
         return;
       }
 
-      var existing = document.getElementById('ad-provider-script');
+      var existing = document.getElementById('monetag-vignette');
       if (existing && existing.dataset.loaded === '1') {
-        window.__adProviderLoadReason = 'already-loaded';
+        window.__adLoadReason = 'already-loaded';
         done(true);
         return;
       }
@@ -412,35 +411,37 @@
         var timedOut = false;
         var t = setTimeout(function() {
           timedOut = true;
-          window.__adProviderLoadReason = 'script-timeout';
+          window.__adLoadReason = 'script-timeout';
           done(false);
         }, 5000);
 
         s.async = true;
         s.type = 'application/javascript';
-        s.src = 'https://a.pemsrv.com/ad-provider.js';
-        s.id = 'ad-provider-script';
+        s.id = 'monetag-vignette';
+        s.dataset.zone = '10330251';
+        s.src = 'https://groleegni.net/vignette.min.js';
         s.onload = function() {
           if (timedOut) return;
           clearTimeout(t);
           s.dataset.loaded = '1';
-          window.__adProviderLoadReason = (typeof window.AdProvider !== 'undefined') ? 'loaded-ok' : 'loaded-no-global';
-          done(!!window.AdProvider);
+          window.__adLoadReason = 'loaded-ok';
+          done(true);
         };
         s.onerror = function() {
           if (timedOut) return;
           clearTimeout(t);
-          window.__adProviderLoadReason = 'script-error';
+          window.__adLoadReason = 'script-error';
           done(false);
         };
-        document.head.appendChild(s);
+        // exakt wie im Snippet: Script ans Ende von <html> oder <body> hängen
+        ([document.documentElement, document.body].filter(Boolean).pop() || document.head).appendChild(s);
         return;
       }
 
       // Script existiert, aber loaded-Flag fehlt (Race). Kurz warten.
       setTimeout(function() {
-        window.__adProviderLoadReason = (typeof window.AdProvider !== 'undefined') ? 'race-ok' : 'race-no-global';
-        done(!!window.AdProvider);
+        window.__adLoadReason = 'race';
+        done(!!(existing.dataset && existing.dataset.loaded === '1'));
       }, 800);
     }
 
@@ -456,15 +457,11 @@
       status.textContent = 'Werbung wird geladen...';
       adContainer.appendChild(status);
 
-      var adIns = document.createElement('ins');
-      adIns.className = 'eas6a97888e33';
-      adIns.setAttribute('data-zoneid', '5800584');
-      adContainer.appendChild(adIns);
-      return adIns;
+      return status;
     }
 
     function startAdThenShowResults() {
-      var adIns = renderAdSlot();
+      renderAdSlot();
       var adContainer = document.getElementById('ad-container');
       if (adContainer) {
         try { adContainer.scrollIntoView({ behavior: 'smooth', block: 'start' }); } catch (e) {}
@@ -478,32 +475,11 @@
         try { results.scrollIntoView({ behavior: 'smooth', block: 'start' }); } catch (e) {}
       };
 
-      // Beobachten: sobald der Provider etwas in <ins> einfügt, dann Ergebnisse.
-      var observer;
-      if (adIns && typeof MutationObserver !== 'undefined') {
-        try {
-          observer = new MutationObserver(function(mutations) {
-            for (var i = 0; i < mutations.length; i++) {
-              if (mutations[i].addedNodes && mutations[i].addedNodes.length) {
-                if (observer) observer.disconnect();
-                var st = document.getElementById('ad-status');
-                if (st) st.remove();
-                setTimeout(finish, 400);
-                return;
-              }
-            }
-          });
-          observer.observe(adIns, { childList: true, subtree: true });
-        } catch (e) {
-          // ignore
-        }
-      }
-
-      // Script laden (und Blocker erkennen), dann serve triggern
-      ensureAdProviderScriptLoaded(function(loadedOk) {
+      // Script laden (und Blocker erkennen). Das Vignette-Overlay wird vom Script selbst ausgelöst.
+      ensureMonetagVignetteLoaded(function(loadedOk) {
         if (!loadedOk) {
           var st2 = document.getElementById('ad-status');
-          var reason = window.__adProviderLoadReason || 'unknown';
+          var reason = window.__adLoadReason || 'unknown';
           if (st2) {
             if (reason === 'file-protocol') {
               st2.textContent = 'Werbung kann nicht über file:// geladen werden. Bitte über http://localhost oder https:// öffnen.';
@@ -516,21 +492,17 @@
           return;
         }
 
-        try {
-          (window.AdProvider = window.AdProvider || []).push({"serve": {}});
-        } catch (e) {
-          // ignore
-        }
+        var stOk = document.getElementById('ad-status');
+        if (stOk) stOk.remove();
+        // Kurz warten, damit das Overlay starten kann, dann Ergebnisse.
+        setTimeout(finish, 800);
       });
 
       // Fallback: nicht hängen bleiben
       setTimeout(function() {
         if (!finished) {
-          var hasFill = !!(adIns && (adIns.childNodes && adIns.childNodes.length > 0));
-          if (!hasFill) {
-            var st3 = document.getElementById('ad-status');
-            if (st3) st3.textContent = 'Werbung konnte nicht geladen werden (AdBlock/CSP/kein Fill).';
-          }
+          var st3 = document.getElementById('ad-status');
+          if (st3) st3.textContent = 'Werbung konnte nicht geladen werden (AdBlock/CSP/kein Fill).';
         }
         finish();
       }, 6000);
